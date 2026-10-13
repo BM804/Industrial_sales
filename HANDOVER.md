@@ -25,6 +25,12 @@ An offline-first sales negotiation and pipeline workspace for B2B manufacturing 
 
 The customer negotiation history panel is empty on first launch by design. Sales teams can enter actual segment, sector, quote, first counter, final price, result, objection, and response records. Data stays in browser local storage. The displayed counter and close discount summaries derive only from records the team enters. The sector filter also shows responses used on won deals as an evidence-based playbook; there are no fabricated claims about Indian customer behavior.
 
+## Deployment notes
+
+- Node.js 22 is pinned for both hosts. Render can use the included `render.yaml` Blueprint, which builds with `npm ci && npm run build` and starts with `npm start`.
+- On Vercel, import the GitHub repository as a Next.js project. The default build command is `npm run build`; the Node version is pinned by `package.json`.
+- The app does not have a shared database. Resource settings and negotiation history use browser local storage, while deal additions are held in page state. Data is not shared between the Render and Vercel domains and new deals are not retained after a page reload. Treat the hosted app as a demo until durable, authenticated storage is added.
+
 ## Seed data
 
 Five sample industrial and software deals and four sales representatives are defined in `src/data/mock-data.ts`. All displayed records are illustrative. Edits to the resource model are held in page state for the current browser session.
