@@ -10,6 +10,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (!apiConfigured()) { setReady(true); setSignedIn(true); return; }
     const expired=()=>setSignedIn(false);
     window.addEventListener('forge-session-expired',expired);
     const token = getSessionToken();

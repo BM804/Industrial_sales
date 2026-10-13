@@ -30,7 +30,7 @@ export function CustomerHistory() {
     return { count: won.length, medianDiscount, medianFirstCounter, won };
   }, [scopedRecords]);
   return <section className="panel customer-history"><div className="panel-head"><div><h2>Customer negotiation history</h2><p>Build your own evidence base from completed Indian customer negotiations.</p></div><div className="history-badge"><History size={14}/> PRIVATE · SHARED</div></div>
-    <div className="history-disclaimer">No customer behavior is prefilled. Add your team’s actual quote, first counter, close price, objection, and response to surface patterns you can reuse.</div>
+    <div className="history-disclaimer">Illustrative demo records are shown below. Replace them with real customer outcomes before using these insights for decisions.</div>
     <div className="history-filter"><span>Analyze records by sector</span><select value={filterSector} onChange={e => setFilterSector(e.target.value)}><option>All sectors</option>{Array.from(new Set(records.map(r => r.sector))).map(s => <option key={s}>{s}</option>)}</select></div>
     {insights && <div className="history-insight"><b>{insights.count} won {insights.count === 1 ? 'deal' : 'deals'} logged</b><span>Median first-counter ask: <strong>{insights.medianFirstCounter.toFixed(1)}%</strong></span><span>Median final discount: <strong>{insights.medianDiscount.toFixed(1)}%</strong></span></div>}
     {insights && <div className="win-playbook"><b>Responses used on won deals</b>{insights.won.map(r => <p key={r.id}><span>{r.sector} · {r.customerType}</span>{r.response}</p>)}</div>}
