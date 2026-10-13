@@ -2,7 +2,8 @@
 import { Sparkles, Settings2 } from 'lucide-react';
 import { defaultRoles, formatINR, manDays, manMonths, roleCost, type Role } from '../../lib/pricing-rules';
 
-const milestones = [
+export type Milestone = { name:string; owner:string; start:number; duration:number; color:string };
+export const defaultMilestones:Milestone[] = [
   { name: 'Figma design & requirements', owner: 'UI/UX + BA', start: 1, duration: 1.5, color: '#8979eb' },
   { name: 'AI architecture & prototype', owner: 'AI engineers', start: 1, duration: 2, color: '#47a88a' },
   { name: 'Core implementation', owner: 'Frontend + backend', start: 1, duration: 2, color: '#718ed5' },
@@ -10,8 +11,19 @@ const milestones = [
   { name: 'Acceptance & handover', owner: 'Core + PM', start: 4.5, duration: .5, color: '#cf7b79' }
 ];
 
-export function CostPlanner({ roles, setRoles, cost }: { roles: Role[]; setRoles: (roles: Role[]) => void; cost: number }) {
-  const update = (index: number, change: Partial<Role>) => setRoles(roles.map((role, i) => i === index ? { ...role, ...change } : role));
+export function CostPlanner({ roles, setRoles, milestones, setMilestones, cost }: { roles: Role[]; setRoles: (roles: Role[]) => void; milestones:Milestone[]; setMilestones:(milestones:Milestone[])=>void; cost: number }) {
+  const qaStart=milestones.find(item=>item.name==='Integration & QA cycles')?.start ?? 3;
+  const update = (index: number, change: Partial<Role>) => setRoles(roles.map((role, i) => {
+    if(i!==index)return role;
+    const aligned=role.name.toLowerCase().includes('qa')&&change.startMonth!==undefined?{...change,startMonth:Math.max(qaStart,change.startMonth)}:change;
+    return {...role,...aligned};
+  }));
+  const updateMilestone = (index:number, change:Partial<Milestone>)=>setMilestones(milestones.map((item,i)=>{
+    if(i!==index)return item;
+    const start=Math.min(5,Math.max(1,change.start??item.start));
+    const duration=Math.min(6-start,Math.max(.5,change.duration??item.duration));
+    return {...item,...change,start,duration};
+  }));
   const months = [1, 2, 3, 4, 5];
   return <>
     <div className="metric-grid">
@@ -21,11 +33,11 @@ export function CostPlanner({ roles, setRoles, cost }: { roles: Role[]; setRoles
       <div className="metric-card"><span className="metric-label">Project span</span><strong className="metric-value">5 months</strong><span className="metric-note">Resources start when work is ready</span></div>
     </div>
     <section className="panel utilization-panel">
-      <div className="panel-head"><div><h2>Milestones & dependencies</h2><p>Design and AI run in parallel; QA starts after the first two coding months.</p></div></div>
+      <div className="panel-head"><div><h2>Milestones & dependencies</h2><p>Design and AI can run in parallel; QA follows scheduled implementation.</p></div></div>
       <div className="milestone-timeline"><div className="milestone-axis"><span>MILESTONE</span><div>{months.map(m => <span key={m}>Month {m}</span>)}</div></div>
-        {milestones.map(item => <div className="milestone-row" key={item.name}><div className="milestone-label"><b>{item.name}</b><small>{item.owner}</small></div><div className="milestone-track">{months.map(m => <i key={m}/>)}<span className="milestone-bar" style={{ left: `${(item.start - 1) * 20}%`, width: `${item.duration * 20}%`, background: item.color }} title={`${item.name}: month ${item.start} for ${item.duration} months`}/></div></div>)}
+        {milestones.map((item,index) => <div className="milestone-row" key={item.name}><div className="milestone-label"><b>{item.name}</b><small>{item.owner}</small><div className="milestone-controls"><label>Start <select aria-label={`${item.name} start month`} value={item.start} onChange={e=>updateMilestone(index,{start:Number(e.target.value)})}>{months.map(m=><option key={m} value={m}>M{m}</option>)}</select></label><label>Months <input aria-label={`${item.name} duration`} type="number" min="0.5" max={6-item.start} step="0.5" value={item.duration} onChange={e=>updateMilestone(index,{duration:Number(e.target.value)})}/></label></div></div><div className="milestone-track">{months.map(m => <i key={m}/>)}<span className="milestone-bar" style={{ left: `${(item.start - 1) * 20}%`, width: `${Math.min(item.duration,6-item.start) * 20}%`, background: item.color }} title={`${item.name}: month ${item.start} for ${item.duration} months`}/></div></div>)}
       </div>
-      <div className="dependency-note"><Sparkles size={15}/><span><b>Dependency rule:</b> Core coding runs in months 1–2; QA begins in month 3 after that coding milestone completes. No tester cost is charged before deployment.</span></div>
+      <div className="dependency-note"><Sparkles size={15}/><span><b>Dependency rule:</b> QA begins in month {qaStart}, after core implementation is scheduled to finish. QA resource start month and cost follow this milestone. No tester cost is charged before deployment.</span></div>
     </section>
     <div className="planner-grid utilization-grid"><section className="panel"><div className="panel-head"><div><h2>Resource plan & cost</h2><p>Enter deployed months and utilization for each role.</p></div><button className="btn btn-light compact" onClick={() => setRoles(defaultRoles.map(r => ({...r})))}><Settings2 size={14}/> Reset plan</button></div>
       <div className="resource-list"><div className="resource-head effort-head"><span>ROLE / EXPERIENCE</span><span>HC</span><span>RATE / MONTH</span><span>START</span><span>DURATION</span><span>UTIL.</span><span>EFFORT</span><span>COST</span></div>
