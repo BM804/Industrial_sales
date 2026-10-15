@@ -20,15 +20,25 @@ CREATE TABLE IF NOT EXISTS deals (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, customer TEXT NOT NULL, rep TEXT NOT NULL,
   stage TEXT NOT NULL, value NUMERIC NOT NULL CHECK (value >= 0), close_date TEXT NOT NULL DEFAULT '',
   margin NUMERIC NOT NULL DEFAULT 0 CHECK (margin >= 0 AND margin <= 100), tag TEXT NOT NULL DEFAULT 'Other',
+  team_cost NUMERIC CHECK (team_cost >= 0), market_price NUMERIC CHECK (market_price >= 0),
+  duration_months NUMERIC NOT NULL DEFAULT 6 CHECK (duration_months > 0), project_start_date TEXT NOT NULL DEFAULT '', feedback TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS team_cost NUMERIC CHECK (team_cost >= 0);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS market_price NUMERIC CHECK (market_price >= 0);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS duration_months NUMERIC NOT NULL DEFAULT 6 CHECK (duration_months > 0);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS project_start_date TEXT NOT NULL DEFAULT '';
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS feedback TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS negotiation_records (
   id UUID PRIMARY KEY, customer_type TEXT NOT NULL, sector TEXT NOT NULL, quote NUMERIC NOT NULL CHECK (quote > 0),
   first_counter NUMERIC NOT NULL CHECK (first_counter > 0), closed_at NUMERIC NOT NULL DEFAULT 0 CHECK (closed_at >= 0),
   outcome TEXT NOT NULL CHECK (outcome IN ('Won','Lost','Open')), objection TEXT NOT NULL, response TEXT NOT NULL,
+  deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL, project_name TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL;
+ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS project_name TEXT NOT NULL DEFAULT '';
 `;
 
 function send(res, status, data) {
@@ -70,17 +80,31 @@ async function body(req) {
   catch { throw Object.assign(new Error('Request body must be valid JSON.'), { status: 400 }); }
 }
 function dealInput(data) {
-  const values = { name: data.name, customer: data.customer, rep: data.rep, stage: data.stage, value: Number(data.value), close: data.close || '', margin: Number(data.margin ?? 0), tag: data.tag || 'Other' };
-  if (![values.name, values.customer, values.rep, values.stage].every((x) => typeof x === 'string' && x.trim()) || !Number.isFinite(values.value) || values.value < 0 || !Number.isFinite(values.margin) || values.margin < 0 || values.margin > 100) {
+  const values = { name: data.name, customer: data.customer, rep: data.rep, stage: data.stage, value: Number(data.value), close: data.close || '', margin: Number(data.margin ?? 0), tag: data.tag || 'Other', teamCost: data.teamCost == null ? null : Number(data.teamCost), marketPrice: data.marketPrice == null ? null : Number(data.marketPrice), durationMonths: Number(data.durationMonths ?? 6), startDate: data.startDate || '', feedback: typeof data.feedback === 'string' ? data.feedback : '' };
+  if (![values.name, values.customer, values.rep, values.stage].every((x) => typeof x === 'string' && x.trim()) || !Number.isFinite(values.value) || values.value < 0 || !Number.isFinite(values.margin) || values.margin < 0 || values.margin > 100 || !Number.isFinite(values.durationMonths) || values.durationMonths <= 0 || values.durationMonths > 120 || (values.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(values.startDate)) || values.feedback.length > 2000 || [values.teamCost, values.marketPrice].some((x) => x !== null && (!Number.isFinite(x) || x < 0))) {
     throw Object.assign(new Error('Enter a name, customer, owner, stage, valid amount, and margin from 0 to 100.'), { status: 400 });
   }
   return values;
 }
 function dealRow(row) {
-  return { id: row.id, name: row.name, customer: row.customer, rep: row.rep, stage: row.stage, value: Number(row.value), close: row.close_date, margin: Number(row.margin), tag: row.tag };
+  return { id: row.id, name: row.name, customer: row.customer, rep: row.rep, stage: row.stage, value: Number(row.value), close: row.close_date, startDate: row.project_start_date || '', margin: Number(row.margin), tag: row.tag, ...(row.team_cost == null ? {} : { teamCost: Number(row.team_cost) }), ...(row.market_price == null ? {} : { marketPrice: Number(row.market_price) }), durationMonths: Number(row.duration_months ?? 6), feedback: row.feedback || '' };
 }
 
 await pool.query(schema);
+const timelineMigration = await pool.query("SELECT value FROM app_settings WHERE key='project-timeline-v2'");
+if (!timelineMigration.rowCount) {
+  const oldTimelines = await pool.query('SELECT id, name, close_date FROM deals WHERE duration_months <= 1');
+  for (const deal of oldTimelines.rows) {
+    const text = String(deal.name).toLowerCase();
+    const durationMonths = /factory|automation|robotics|digital twin|modernization/.test(text) ? 10 : /platform|analytics|predictive|vision|traceability/.test(text) ? 7 : 4 + (Array.from(String(deal.id)).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 5);
+    const parsedEnd = /^\d{4}-\d{2}-\d{2}$/.test(deal.close_date || '') ? new Date(`${deal.close_date}T00:00:00Z`) : new Date();
+    const end = Number.isNaN(parsedEnd.valueOf()) ? new Date() : parsedEnd;
+    const start = new Date(end);
+    start.setUTCMonth(start.getUTCMonth() - durationMonths);
+    await pool.query('UPDATE deals SET duration_months=$2,project_start_date=$3 WHERE id=$1', [deal.id, durationMonths, start.toISOString().slice(0, 10)]);
+  }
+  await pool.query("INSERT INTO app_settings(key,value,updated_at) VALUES('project-timeline-v2','true'::jsonb,NOW()) ON CONFLICT(key) DO NOTHING");
+}
 const server = http.createServer(async (req, res) => {
   if (!cors(req, res)) return send(res, 403, { error: 'This website is not allowed to access the API.' });
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
@@ -115,7 +139,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/deals' && req.method === 'POST') {
       const data = dealInput(await body(req));
       const id = `FD-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-      const result = await pool.query('INSERT INTO deals(id,name,customer,rep,stage,value,close_date,margin,tag) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *', [id, data.name.trim(), data.customer.trim(), data.rep.trim(), data.stage, data.value, data.close, data.margin, data.tag]);
+      const result = await pool.query('INSERT INTO deals(id,name,customer,rep,stage,value,close_date,margin,tag,team_cost,market_price,duration_months,feedback,project_start_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *', [id, data.name.trim(), data.customer.trim(), data.rep.trim(), data.stage, data.value, data.close, data.margin, data.tag, data.teamCost, data.marketPrice,data.durationMonths,data.feedback,data.startDate]);
       return send(res, 201, dealRow(result.rows[0]));
     }
     const dealMatch = path.match(/^\/api\/deals\/([^/]+)$/);
@@ -124,7 +148,7 @@ const server = http.createServer(async (req, res) => {
       if (!old.rowCount) return send(res, 404, { error: 'Opportunity not found.' });
       const existing = dealRow(old.rows[0]);
       const data = dealInput({ ...existing, ...await body(req) });
-      const result = await pool.query('UPDATE deals SET name=$2,customer=$3,rep=$4,stage=$5,value=$6,close_date=$7,margin=$8,tag=$9,updated_at=NOW() WHERE id=$1 RETURNING *', [dealMatch[1], data.name.trim(), data.customer.trim(), data.rep.trim(), data.stage, data.value, data.close, data.margin, data.tag]);
+      const result = await pool.query('UPDATE deals SET name=$2,customer=$3,rep=$4,stage=$5,value=$6,close_date=$7,margin=$8,tag=$9,team_cost=$10,market_price=$11,duration_months=$12,feedback=$13,project_start_date=$14,updated_at=NOW() WHERE id=$1 RETURNING *', [dealMatch[1], data.name.trim(), data.customer.trim(), data.rep.trim(), data.stage, data.value, data.close, data.margin, data.tag, data.teamCost, data.marketPrice,data.durationMonths,data.feedback,data.startDate]);
       return send(res, 200, dealRow(result.rows[0]));
     }
     if (dealMatch && req.method === 'DELETE') {
@@ -155,14 +179,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === '/api/negotiations' && req.method === 'GET') {
       const result = await pool.query('SELECT * FROM negotiation_records ORDER BY created_at DESC');
-      return send(res, 200, result.rows.map((r) => ({ id:r.id, customerType:r.customer_type, sector:r.sector, quote:Number(r.quote), firstCounter:Number(r.first_counter), closedAt:Number(r.closed_at), outcome:r.outcome, objection:r.objection, response:r.response })));
+      return send(res, 200, result.rows.map((r) => ({ id:r.id, customerType:r.customer_type, sector:r.sector, quote:Number(r.quote), firstCounter:Number(r.first_counter), closedAt:Number(r.closed_at), outcome:r.outcome, objection:r.objection, response:r.response, dealId:r.deal_id, projectName:r.project_name, createdAt:r.created_at })));
     }
     if (path === '/api/negotiations' && req.method === 'POST') {
       const r = await body(req);
       if (!r.customerType?.trim() || !r.sector?.trim() || !r.objection?.trim() || !r.response?.trim() || !['Won','Lost','Open'].includes(r.outcome) || ![r.quote,r.firstCounter].every((x) => Number.isFinite(Number(x)) && Number(x) > 0) || !Number.isFinite(Number(r.closedAt || 0)) || Number(r.closedAt || 0) < 0 || (r.outcome === 'Won' && Number(r.closedAt) <= 0)) return send(res, 400, { error: 'Complete all negotiation fields with valid amounts. A final price is required for a won deal.' });
       const id = crypto.randomUUID();
-      await pool.query('INSERT INTO negotiation_records(id,customer_type,sector,quote,first_counter,closed_at,outcome,objection,response) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)', [id,r.customerType.trim(),r.sector.trim(),Number(r.quote),Number(r.firstCounter),Number(r.closedAt),r.outcome,r.objection.trim(),r.response.trim()]);
-      return send(res, 201, { ...r, id });
+      const dealId=r.dealId?String(r.dealId):null;
+      const projectName=String(r.projectName||'').trim();
+      if(dealId){const linked=await pool.query('SELECT id FROM deals WHERE id=$1',[dealId]);if(!linked.rowCount)return send(res,400,{error:'Choose an existing project for this negotiation record.'});}
+      await pool.query('INSERT INTO negotiation_records(id,customer_type,sector,quote,first_counter,closed_at,outcome,objection,response,deal_id,project_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id,r.customerType.trim(),r.sector.trim(),Number(r.quote),Number(r.firstCounter),Number(r.closedAt),r.outcome,r.objection.trim(),r.response.trim(),dealId,projectName]);
+      return send(res, 201, { ...r, id, dealId, projectName, createdAt:new Date().toISOString() });
     }
     const historyMatch = path.match(/^\/api\/negotiations\/([0-9a-f-]+)$/i);
     if (historyMatch && req.method === 'DELETE') {
