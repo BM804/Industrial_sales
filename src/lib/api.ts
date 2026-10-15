@@ -3,11 +3,11 @@ const TOKEN_KEY = 'forge-workspace-session';
 const DEMO_KEYS = { deals: 'forge-demo-deals', planner: 'forge-demo-planner', goal: 'forge-demo-goal', history: 'forge-demo-history' };
 
 const demoDeals: Deal[] = [
-  { id:'demo-1', name:'Dubai Smart Factory Upgrade', customer:'Al Noor Industries', rep:'Aarav Mehta', stage:'In negotiation', value:18500000, close:'2026-12-15', margin:38, tag:'Manufacturing' },
-  { id:'demo-2', name:'Automated Press Line', customer:'Bharat Auto Components', rep:'Priya Sharma', stage:'Quote submitted', value:12400000, close:'2026-11-28', margin:42, tag:'Automotive' },
-  { id:'demo-3', name:'Predictive Maintenance Platform', customer:'Western Foundry Group', rep:'Rohan Iyer', stage:'Technical sizing', value:9200000, close:'2027-01-20', margin:31, tag:'Industrial' },
-  { id:'demo-4', name:'Warehouse Robotics Phase 1', customer:'Meridian Engineering', rep:'Aarav Mehta', stage:'Internal rationalization', value:7600000, close:'2026-12-30', margin:46, tag:'Logistics' },
-  { id:'demo-5', name:'Quality Vision Inspection', customer:'Suryatech Motors', rep:'Priya Sharma', stage:'Closed won', value:6800000, close:'2026-10-02', margin:44, tag:'Automotive' },
+  { id:'demo-1', name:'Dubai Smart Factory Upgrade', customer:'Al Noor Industries', rep:'Aarav Mehta', stage:'In negotiation', value:18500000, close:'2026-12-15', margin:38, tag:'Manufacturing', marketPrice:20500000 },
+  { id:'demo-2', name:'Automated Press Line', customer:'Bharat Auto Components', rep:'Priya Sharma', stage:'Quote submitted', value:12400000, close:'2026-11-28', margin:42, tag:'Automotive', marketPrice:14000000 },
+  { id:'demo-3', name:'Predictive Maintenance Platform', customer:'Western Foundry Group', rep:'Rohan Iyer', stage:'Technical sizing', value:9200000, close:'2027-01-20', margin:31, tag:'Industrial', marketPrice:10300000 },
+  { id:'demo-4', name:'Warehouse Robotics Phase 1', customer:'Meridian Engineering', rep:'Aarav Mehta', stage:'Internal rationalization', value:7600000, close:'2026-12-30', margin:46, tag:'Logistics', marketPrice:8300000 },
+  { id:'demo-5', name:'Quality Vision Inspection', customer:'Suryatech Motors', rep:'Priya Sharma', stage:'Closed won', value:6800000, close:'2026-10-02', margin:44, tag:'Automotive', marketPrice:7400000 },
 ];
 const demoHistory: HistoryRecord[] = [
   { id:'history-1', customerType:'Tier-1 auto supplier', sector:'Automotive', quote:15000000, firstCounter:12500000, closedAt:14100000, outcome:'Won', objection:'Requested a lower price and faster delivery', response:'Protected acceptance criteria and offered phased commissioning with a milestone-linked payment plan.' },
@@ -82,5 +82,5 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return result as T;
 }
 
-export type Deal = { id:string; name:string; customer:string; rep:string; stage:string; value:number; close:string; margin:number; tag:string };
+export type Deal = { id:string; name:string; customer:string; rep:string; stage:string; value:number; close:string; margin:number; tag:string; marketPrice?:number };
 export type HistoryRecord = { id:string; customerType:string; sector:string; quote:number; firstCounter:number; closedAt:number; outcome:'Won'|'Lost'|'Open'; objection:string; response:string };
