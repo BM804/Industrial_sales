@@ -17,10 +17,6 @@ services:
         fromDatabase:
           name: forge-sales-db
           property: connectionString
-      - key: APP_SESSION_SECRET
-        generateValue: true
-      - key: APP_LOGIN_PASSWORD
-        sync: false
 
 databases:
   - name: forge-sales-db

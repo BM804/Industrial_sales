@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Building2, BriefcaseBusiness, CircleDollarSign, ExternalLink, LoaderCircle, TrendingUp } from 'lucide-react';
-import { AuthGate } from '../../../components/auth-gate';
 import { apiFetch, normalizeDealStage, type Deal } from '../../../lib/api';
 import { formatINR } from '../../../lib/pricing-rules';
 
 const dateLabel = (value?: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Not set';
 
 export default function ProjectPage() {
-  return <AuthGate><ProjectAccountView /></AuthGate>;
+  return <ProjectAccountView />;
 }
 
 function ProjectAccountView() {

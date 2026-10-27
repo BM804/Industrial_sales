@@ -29,20 +29,45 @@ export async function POST(request: Request) {
   }
 
   try {
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.25, maxOutputTokens: 650 },
-      }),
-      signal: AbortSignal.timeout(45_000),
-      cache: 'no-store',
+    const requestBody = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        thinkingConfig: { thinkingLevel: 'LOW' },
+        maxOutputTokens: 650,
+      },
     });
-    const result = await upstream.json().catch(() => null) as {
+    let upstream: Response | undefined;
+    let result: {
       error?: { message?: string; status?: string };
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
-    } | null;
+    } | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: requestBody,
+          signal: AbortSignal.timeout(25_000),
+          cache: 'no-store',
+        });
+      } catch (error) {
+        if (attempt === 2) throw error;
+        const backoffMs = 700 * (2 ** attempt) + Math.floor(Math.random() * 300);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      result = await upstream.json().catch(() => null) as typeof result;
+
+      const retryable = [408, 429, 500, 502, 503, 504].includes(upstream.status);
+      if (upstream.ok || !retryable || attempt === 2) break;
+      const backoffMs = 700 * (2 ** attempt) + Math.floor(Math.random() * 300);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    }
+
+    if (!upstream) {
+      return NextResponse.json({ error: 'Could not start a request to Google Gemini. Try again.' }, { status: 502 });
+    }
 
     if (!upstream.ok) {
       const detail = result?.error?.message || `Google returned HTTP ${upstream.status}.`;

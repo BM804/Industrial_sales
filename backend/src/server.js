@@ -4,17 +4,11 @@ import { Pool } from 'pg';
 
 const port = Number(process.env.PORT || 10000);
 const databaseUrl = process.env.DATABASE_URL;
-const loginPassword = process.env.APP_LOGIN_PASSWORD;
-const sessionSecret = process.env.APP_SESSION_SECRET;
 const allowedOrigins = (process.env.WEB_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-if (!databaseUrl || !loginPassword || !sessionSecret) {
-  throw new Error('Set DATABASE_URL, APP_LOGIN_PASSWORD, and APP_SESSION_SECRET before starting the API.');
-}
-if (loginPassword.length < 12) throw new Error('APP_LOGIN_PASSWORD must be at least 12 characters long.');
+if (!databaseUrl) throw new Error('Set DATABASE_URL before starting the API.');
 
 const pool = new Pool({ connectionString: databaseUrl, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: 5 });
-const loginAttempts = new Map();
 const schema = `
 CREATE TABLE IF NOT EXISTS deals (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, customer TEXT NOT NULL, rep TEXT NOT NULL,
@@ -50,25 +44,9 @@ function cors(req, res) {
   const allowed = !origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin) || (!allowedOrigins.length && (/^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin)));
   if (origin && allowed) res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   return allowed;
-}
-function sign(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = crypto.createHmac('sha256', sessionSecret).update(body).digest('base64url');
-  return `${body}.${signature}`;
-}
-function authenticated(req) {
-  try {
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (!token) return false;
-    const [body, signature] = token.split('.');
-    const expected = crypto.createHmac('sha256', sessionSecret).update(body).digest();
-    const actual = Buffer.from(signature, 'base64url');
-    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return false;
-    return JSON.parse(Buffer.from(body, 'base64url').toString()).exp > Date.now();
-  } catch { return false; }
 }
 async function body(req) {
   let raw = '';
@@ -112,26 +90,6 @@ const server = http.createServer(async (req, res) => {
   const path = url.pathname.replace(/\/$/, '') || '/';
   try {
     if (path === '/health' && req.method === 'GET') return send(res, 200, { ok: true });
-    if (path === '/api/auth/login' && req.method === 'POST') {
-      const forwarded = String(req.headers['x-forwarded-for'] || '').split(',').map((value) => value.trim()).filter(Boolean);
-      const address = forwarded.at(-1) || req.socket.remoteAddress || 'unknown';
-      const now = Date.now();
-      const attempt = loginAttempts.get(address);
-      if (attempt && now - attempt.started < 15 * 60 * 1000 && attempt.count >= 10) return send(res, 429, { error: 'Too many sign-in attempts. Wait 15 minutes and try again.' });
-      const input = await body(req);
-      const provided = Buffer.from(String(input.password || ''));
-      const expected = Buffer.from(loginPassword);
-      if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
-        if (!attempt || now - attempt.started >= 15 * 60 * 1000) loginAttempts.set(address,{started:now,count:1});
-        else loginAttempts.set(address,{...attempt,count:attempt.count+1});
-        return send(res, 401, { error: 'That workspace password is not correct.' });
-      }
-      loginAttempts.delete(address);
-      return send(res, 200, { token: sign({ sub: 'workspace-member', exp: Date.now() + 7 * 24 * 60 * 60 * 1000 }) });
-    }
-    if (!authenticated(req)) return send(res, 401, { error: 'Please sign in to your workspace again.' });
-    if (path === '/api/auth/me' && req.method === 'GET') return send(res, 200, { ok: true });
-
     if (path === '/api/deals' && req.method === 'GET') {
       const result = await pool.query('SELECT * FROM deals ORDER BY created_at DESC');
       return send(res, 200, result.rows.map(dealRow));
