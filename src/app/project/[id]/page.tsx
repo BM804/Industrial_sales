@@ -33,9 +33,9 @@ function ProjectAccountView() {
 
   const project = deals.find(deal => deal.id === decodeURIComponent(id));
   const accountProjects = useMemo(() => project ? deals.filter(deal => deal.customer === project.customer).sort((a, b) => (b.close || '').localeCompare(a.close || '')) : [], [deals, project]);
-  const won = accountProjects.filter(deal => deal.stage === 'Closed won');
-  const lost = accountProjects.filter(deal => deal.stage === 'Closed lost');
-  const active = accountProjects.filter(deal => deal.stage !== 'Closed won' && deal.stage !== 'Closed lost');
+  const won = accountProjects.filter(deal => deal.stage === 'Closed Won');
+  const lost = accountProjects.filter(deal => deal.stage === 'Closed Lost');
+  const active = accountProjects.filter(deal => deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost');
   const totalValue = accountProjects.reduce((sum, deal) => sum + deal.value, 0);
   const completedRevenue = won.reduce((sum, deal) => sum + deal.value, 0);
   const pipeline = active.reduce((sum, deal) => sum + deal.value, 0);

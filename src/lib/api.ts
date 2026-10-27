@@ -5,10 +5,14 @@ const DURATION_VERSION_KEY = 'forge-project-timeline-version';
 const representatives = ['Avinab Koushik', 'Aarav Mehta', 'Priya Sharma', 'Rohan Iyer', 'Sneha Nair', 'Vikram Desai', 'Neha Kapoor', 'Kabir Malhotra'];
 const accountNames = ['Al Noor Industries', 'Bharat Auto Components', 'Western Foundry Group', 'Meridian Engineering', 'Suryatech Motors', 'Apex Process Systems', 'Indus Motion Controls', 'Trident Packaging Works', 'Vardhan Industrial Systems', 'BluePeak Manufacturing', 'Kaveri Precision Components', 'Northstar Automation', 'Summit Heavy Equipment', 'Crestline Logistics', 'Pioneer Energy Systems', 'Silverline Castings', 'Aarohan Electrical Works', 'Evergreen Plant Technologies', 'Vertex Materials Group', 'Horizon Machine Tools'];
 const projectTypes = ['Smart Factory Modernization', 'Automated Press Line', 'Predictive Maintenance Platform', 'Warehouse Robotics System', 'Quality Vision Inspection', 'Energy Optimization Program', 'CNC Modernization', 'Assembly Line Traceability', 'Digital Twin Deployment', 'Industrial IoT Gateway', 'Robotic Welding Cell', 'Packaging Automation', 'Condition Monitoring Network', 'Material Handling Upgrade', 'Batch Control System', 'Fleet Telematics Rollout', 'Safety Interlock Modernization', 'Process Analytics Platform', 'Vision Guided Assembly', 'Plant Network Resilience'];
-const stages = ['Technical sizing', 'Proposal preparation', 'Proposal submit', 'In negotiation'];
+const stages = ['Proposal Preparation', 'Proposal Submitted', 'In Negotiation', 'Closed Won', 'Closed Lost'];
 export function normalizeDealStage(stage: string) {
-  if (stage === 'Internal rationalization') return 'Proposal preparation';
-  if (stage === 'Quote submitted') return 'Proposal submit';
+  const normalized = stage.trim().toLowerCase();
+  if (normalized.includes('sizing') || normalized === 'internal rationalization' || normalized === 'proposal preparation') return 'Proposal Preparation';
+  if (normalized === 'proposal submit' || normalized === 'proposal submitted' || normalized === 'quote submitted') return 'Proposal Submitted';
+  if (normalized === 'in negotiation') return 'In Negotiation';
+  if (normalized === 'closed won' || normalized === 'won') return 'Closed Won';
+  if (normalized === 'closed lost' || normalized === 'lost') return 'Closed Lost';
   return stage;
 }
 const projectDurations = [8, 9, 7, 10, 6, 5, 4, 6, 8, 3, 5, 6, 4, 5, 7, 4, 3, 5, 6, 4];
@@ -24,9 +28,9 @@ const illustrativeDeals: Deal[] = Array.from({ length: 100 }, (_, index) => {
   const cycle = Math.floor(index / projectTypes.length) + 1;
   const value = 2_000_000 + ((index * 791_337) % 16_000_000);
   const margin = 32 + ((index * 7) % 22);
-  const stage = index % 10 === 9 ? 'Closed won' : index % 17 === 16 ? 'Closed lost' : stages[index % stages.length];
+  const stage = index % 10 === 9 ? 'Closed Won' : index % 17 === 16 ? 'Closed Lost' : stages[index % 3];
   const durationMonths=Math.min(18,projectDurations[index%projectDurations.length]+cycle-1);
-  const completed=stage==='Closed won'||stage==='Closed lost';
+  const completed=stage==='Closed Won'||stage==='Closed Lost';
   const closeOffset=completed?-1-Math.floor((index%30)/5):1+Math.floor((index%12)/3);
   const close=shiftedMonth(closeOffset,5+(index%22));
   const startDate=shiftedMonth(closeOffset-durationMonths,3+(index%24));
@@ -38,7 +42,7 @@ const illustrativeDeals: Deal[] = Array.from({ length: 100 }, (_, index) => {
     stage, value, close, startDate, durationMonths,
     margin, tag: ['Manufacturing', 'Automotive', 'Industrial', 'Logistics', 'Energy'][index % 5],
     marketPrice: Math.round(value * (1.04 + (index % 9) / 100)), teamCost: Math.round(value * (1 - margin / 100)),
-    feedback:stage==='Closed won'?clientReviews[index%clientReviews.length]:''
+    feedback:stage==='Closed Won'?clientReviews[index%clientReviews.length]:''
   };
 });
 const negotiationScenarios = [
@@ -53,7 +57,7 @@ const illustrativeHistory: HistoryRecord[] = negotiationScenarios.flatMap(({deal
   const deal=illustrativeDeals[dealIndex];
   return rounds.map(([objection,response],round)=>{
     const finalRound=round===rounds.length-1;
-    const won=deal.stage==='Closed won'&&finalRound;
+    const won=deal.stage==='Closed Won'&&finalRound;
     return {id:`round-${deal.id}-${round+1}`,dealId:deal.id,projectName:deal.name,customerType:deal.name,sector:deal.tag,quote:deal.value,firstCounter:Math.round(deal.value*(.86+round*.035)),closedAt:won?Math.round(deal.value*(.94+round*.01)):0,outcome:won?'Won' as const:'Open' as const,objection,response};
   });
 });
@@ -97,9 +101,11 @@ function demoRequest<T>(path: string, init: RequestInit): T {
     const id = path.split('/').pop()!;
     if (method === 'DELETE') demoWrite(DEMO_KEYS.deals, deals().filter(d => d.id !== id));
     else { const updated = { ...body, id }; demoWrite(DEMO_KEYS.deals, deals().map(d => d.id === id ? updated : d)); result = updated; }
-  } else if (path === '/api/planner') {
-    if (method === 'GET') result = demoRead(DEMO_KEYS.planner, { roles: null, milestones: null });
-    else { demoWrite(DEMO_KEYS.planner, body); result = { saved: true }; }
+  } else if (path.startsWith('/api/planner')) {
+    const projectId=new URLSearchParams(path.split('?')[1]||'').get('projectId');
+    const plannerKey=projectId?`${DEMO_KEYS.planner}:${projectId}`:DEMO_KEYS.planner;
+    if (method === 'GET') result = demoRead(plannerKey, { roles: null, milestones: null });
+    else { demoWrite(plannerKey, body); result = { saved: true }; }
   } else if (path === '/api/goal') {
     if (method === 'GET') result = demoRead(DEMO_KEYS.goal, { target: 30000000 });
     else { demoWrite(DEMO_KEYS.goal, body); result = body; }
@@ -107,7 +113,9 @@ function demoRequest<T>(path: string, init: RequestInit): T {
     if (method === 'GET') result = history();
     else { const row = { ...body, id: `history-${Date.now()}` }; demoWrite(DEMO_KEYS.history, [row, ...history()]); result = row; }
   } else if (path.startsWith('/api/negotiations/')) {
-    const id = path.split('/').pop()!; demoWrite(DEMO_KEYS.history, history().filter(record => record.id !== id));
+    const id = path.split('/').pop()!;
+    if(method==='DELETE') demoWrite(DEMO_KEYS.history, history().filter(record => record.id !== id));
+    else if(method==='PATCH') { const updated=history().map(record=>record.id===id?{...record,...body}:record);demoWrite(DEMO_KEYS.history,updated);result=updated.find(record=>record.id===id)||{ok:false}; }
   }
   return result as T;
 }
@@ -135,4 +143,4 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 export type Deal = { id:string; name:string; customer:string; rep:string; stage:string; value:number; close:string; startDate?:string; margin:number; tag:string; marketPrice?:number; teamCost?:number; durationMonths?:number; feedback?:string };
-export type HistoryRecord = { id:string; customerType:string; sector:string; quote:number; firstCounter:number; closedAt:number; outcome:'Won'|'Lost'|'Open'; objection:string; response:string; dealId?:string|null; projectName?:string|null; createdAt?:string };
+export type HistoryRecord = { id:string; customerType:string; sector:string; quote:number; firstCounter:number; closedAt:number; outcome:'Won'|'Lost'|'Open'; objection:string; response:string; aiSuggestion?:string; suggestionApplied?:boolean; dealId?:string|null; projectName?:string|null; createdAt?:string };

@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 
 const port = Number(process.env.PORT || 10000);
 const databaseUrl = process.env.DATABASE_URL;
+const pipelineStages=['Proposal Preparation','Proposal Submitted','In Negotiation','Closed Won','Closed Lost'];
 const allowedOrigins = (process.env.WEB_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 if (!databaseUrl) throw new Error('Set DATABASE_URL before starting the API.');
@@ -23,16 +24,26 @@ ALTER TABLE deals ADD COLUMN IF NOT EXISTS market_price NUMERIC CHECK (market_pr
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS duration_months NUMERIC NOT NULL DEFAULT 6 CHECK (duration_months > 0);
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS project_start_date TEXT NOT NULL DEFAULT '';
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS feedback TEXT NOT NULL DEFAULT '';
+UPDATE deals SET stage=CASE
+  WHEN lower(stage) IN ('technical sizing','tech sizing','internal rationalization','proposal preparation') THEN 'Proposal Preparation'
+  WHEN lower(stage) IN ('quote submitted','proposal submit','proposal submitted') THEN 'Proposal Submitted'
+  WHEN lower(stage)='in negotiation' THEN 'In Negotiation'
+  WHEN lower(stage) IN ('closed won','won') THEN 'Closed Won'
+  WHEN lower(stage) IN ('closed lost','lost') THEN 'Closed Lost'
+  ELSE stage END;
 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS negotiation_records (
   id UUID PRIMARY KEY, customer_type TEXT NOT NULL, sector TEXT NOT NULL, quote NUMERIC NOT NULL CHECK (quote > 0),
   first_counter NUMERIC NOT NULL CHECK (first_counter > 0), closed_at NUMERIC NOT NULL DEFAULT 0 CHECK (closed_at >= 0),
   outcome TEXT NOT NULL CHECK (outcome IN ('Won','Lost','Open')), objection TEXT NOT NULL, response TEXT NOT NULL,
+  ai_suggestion TEXT NOT NULL DEFAULT '', suggestion_applied BOOLEAN NOT NULL DEFAULT FALSE,
   deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL, project_name TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL;
 ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS project_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS ai_suggestion TEXT NOT NULL DEFAULT '';
+ALTER TABLE negotiation_records ADD COLUMN IF NOT EXISTS suggestion_applied BOOLEAN NOT NULL DEFAULT FALSE;
 `;
 
 function send(res, status, data) {
@@ -58,8 +69,11 @@ async function body(req) {
   catch { throw Object.assign(new Error('Request body must be valid JSON.'), { status: 400 }); }
 }
 function dealInput(data) {
-  const values = { name: data.name, customer: data.customer, rep: data.rep, stage: data.stage, value: Number(data.value), close: data.close || '', margin: Number(data.margin ?? 0), tag: data.tag || 'Other', teamCost: data.teamCost == null ? null : Number(data.teamCost), marketPrice: data.marketPrice == null ? null : Number(data.marketPrice), durationMonths: Number(data.durationMonths ?? 6), startDate: data.startDate || '', feedback: typeof data.feedback === 'string' ? data.feedback : '' };
-  if (![values.name, values.customer, values.rep, values.stage].every((x) => typeof x === 'string' && x.trim()) || !Number.isFinite(values.value) || values.value < 0 || !Number.isFinite(values.margin) || values.margin < 0 || values.margin > 100 || !Number.isFinite(values.durationMonths) || values.durationMonths <= 0 || values.durationMonths > 120 || (values.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(values.startDate)) || values.feedback.length > 2000 || [values.teamCost, values.marketPrice].some((x) => x !== null && (!Number.isFinite(x) || x < 0))) {
+  const stageName=String(data.stage||'').trim();
+  const stageKey=stageName.toLowerCase();
+  const stageAliases={ 'technical sizing':'Proposal Preparation', 'tech sizing':'Proposal Preparation', 'internal rationalization':'Proposal Preparation', 'proposal preparation':'Proposal Preparation', 'quote submitted':'Proposal Submitted', 'proposal submit':'Proposal Submitted', 'proposal submitted':'Proposal Submitted', 'in negotiation':'In Negotiation', 'closed won':'Closed Won', won:'Closed Won', 'closed lost':'Closed Lost', lost:'Closed Lost' };
+  const values = { name: data.name, customer: data.customer, rep: data.rep, stage: stageAliases[stageKey]||stageName, value: Number(data.value), close: data.close || '', margin: Number(data.margin ?? 0), tag: data.tag || 'Other', teamCost: data.teamCost == null ? null : Number(data.teamCost), marketPrice: data.marketPrice == null ? null : Number(data.marketPrice), durationMonths: Number(data.durationMonths ?? 6), startDate: data.startDate || '', feedback: typeof data.feedback === 'string' ? data.feedback : '' };
+  if (![values.name, values.customer, values.rep, values.stage].every((x) => typeof x === 'string' && x.trim()) || !pipelineStages.includes(values.stage) || !Number.isFinite(values.value) || values.value < 0 || !Number.isFinite(values.margin) || values.margin < 0 || values.margin > 100 || !Number.isFinite(values.durationMonths) || values.durationMonths <= 0 || values.durationMonths > 120 || (values.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(values.startDate)) || values.feedback.length > 2000 || [values.teamCost, values.marketPrice].some((x) => x !== null && (!Number.isFinite(x) || x < 0))) {
     throw Object.assign(new Error('Enter a name, customer, owner, stage, valid amount, and margin from 0 to 100.'), { status: 400 });
   }
   return values;
@@ -113,15 +127,17 @@ const server = http.createServer(async (req, res) => {
       const result = await pool.query('DELETE FROM deals WHERE id=$1', [dealMatch[1]]);
       return send(res, result.rowCount ? 200 : 404, { deleted: Boolean(result.rowCount) });
     }
+    const projectId=url.searchParams.get('projectId');
+    const plannerKey=projectId?`resource-plan:${projectId}`:'resource-plan';
     if (path === '/api/planner' && req.method === 'GET') {
-      const result = await pool.query("SELECT value FROM app_settings WHERE key='resource-plan'");
+      const result = await pool.query('SELECT value FROM app_settings WHERE key=$1',[plannerKey]);
       const saved = result.rows[0]?.value ?? null;
       return send(res, 200, Array.isArray(saved) ? { roles:saved, milestones:null } : (saved ?? {roles:null,milestones:null}));
     }
     if (path === '/api/planner' && req.method === 'PUT') {
       const input = await body(req);
       if (!Array.isArray(input.roles) || input.roles.length > 50 || !Array.isArray(input.milestones) || input.milestones.length > 50) return send(res, 400, { error: 'Resource plan is invalid.' });
-      await pool.query("INSERT INTO app_settings(key,value,updated_at) VALUES('resource-plan',$1,NOW()) ON CONFLICT(key) DO UPDATE SET value=$1,updated_at=NOW()", [JSON.stringify({roles:input.roles,milestones:input.milestones})]);
+      await pool.query('INSERT INTO app_settings(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO UPDATE SET value=$2,updated_at=NOW()', [plannerKey,JSON.stringify({roles:input.roles,milestones:input.milestones})]);
       return send(res, 200, { saved: true });
     }
     if (path === '/api/goal' && req.method === 'GET') {
@@ -137,7 +153,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === '/api/negotiations' && req.method === 'GET') {
       const result = await pool.query('SELECT * FROM negotiation_records ORDER BY created_at DESC');
-      return send(res, 200, result.rows.map((r) => ({ id:r.id, customerType:r.customer_type, sector:r.sector, quote:Number(r.quote), firstCounter:Number(r.first_counter), closedAt:Number(r.closed_at), outcome:r.outcome, objection:r.objection, response:r.response, dealId:r.deal_id, projectName:r.project_name, createdAt:r.created_at })));
+      return send(res, 200, result.rows.map((r) => ({ id:r.id, customerType:r.customer_type, sector:r.sector, quote:Number(r.quote), firstCounter:Number(r.first_counter), closedAt:Number(r.closed_at), outcome:r.outcome, objection:r.objection, response:r.response, aiSuggestion:r.ai_suggestion, suggestionApplied:r.suggestion_applied, dealId:r.deal_id, projectName:r.project_name, createdAt:r.created_at })));
     }
     if (path === '/api/negotiations' && req.method === 'POST') {
       const r = await body(req);
@@ -146,10 +162,18 @@ const server = http.createServer(async (req, res) => {
       const dealId=r.dealId?String(r.dealId):null;
       const projectName=String(r.projectName||'').trim();
       if(dealId){const linked=await pool.query('SELECT id FROM deals WHERE id=$1',[dealId]);if(!linked.rowCount)return send(res,400,{error:'Choose an existing project for this negotiation record.'});}
-      await pool.query('INSERT INTO negotiation_records(id,customer_type,sector,quote,first_counter,closed_at,outcome,objection,response,deal_id,project_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [id,r.customerType.trim(),r.sector.trim(),Number(r.quote),Number(r.firstCounter),Number(r.closedAt),r.outcome,r.objection.trim(),r.response.trim(),dealId,projectName]);
+      await pool.query('INSERT INTO negotiation_records(id,customer_type,sector,quote,first_counter,closed_at,outcome,objection,response,ai_suggestion,suggestion_applied,deal_id,project_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [id,r.customerType.trim(),r.sector.trim(),Number(r.quote),Number(r.firstCounter),Number(r.closedAt),r.outcome,r.objection.trim(),r.response.trim(),String(r.aiSuggestion||''),Boolean(r.suggestionApplied),dealId,projectName]);
       return send(res, 201, { ...r, id, dealId, projectName, createdAt:new Date().toISOString() });
     }
     const historyMatch = path.match(/^\/api\/negotiations\/([0-9a-f-]+)$/i);
+    if (historyMatch && req.method === 'PATCH') {
+      const input=await body(req);
+      if(typeof input.suggestionApplied!=='boolean')return send(res,400,{error:'Suggestion status is invalid.'});
+      const result=await pool.query('UPDATE negotiation_records SET suggestion_applied=$2 WHERE id=$1 RETURNING *',[historyMatch[1],input.suggestionApplied]);
+      if(!result.rowCount)return send(res,404,{error:'Negotiation round not found.'});
+      const r=result.rows[0];
+      return send(res,200,{id:r.id,customerType:r.customer_type,sector:r.sector,quote:Number(r.quote),firstCounter:Number(r.first_counter),closedAt:Number(r.closed_at),outcome:r.outcome,objection:r.objection,response:r.response,aiSuggestion:r.ai_suggestion,suggestionApplied:r.suggestion_applied,dealId:r.deal_id,projectName:r.project_name,createdAt:r.created_at});
+    }
     if (historyMatch && req.method === 'DELETE') {
       const result = await pool.query('DELETE FROM negotiation_records WHERE id=$1', [historyMatch[1]]);
       return send(res, result.rowCount ? 200 : 404, { deleted: Boolean(result.rowCount) });
