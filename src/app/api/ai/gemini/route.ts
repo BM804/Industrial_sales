@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 type GeminiRequest = {
-  apiKey?: string;
   model?: string;
   prompt?: string;
 };
@@ -16,11 +15,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
   }
 
-  const apiKey = body.apiKey?.trim();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   const model = body.model?.trim() || 'gemini-3.8-flash';
   const prompt = body.prompt?.trim();
-  if (!apiKey || !prompt) {
-    return NextResponse.json({ error: 'Enter your Gemini API key and try again.' }, { status: 400 });
+  if (!apiKey) {
+    return NextResponse.json({ error: 'Gemini is not configured on the server. Add GEMINI_API_KEY to the app environment and restart or redeploy it.' }, { status: 503 });
+  }
+  if (!prompt) {
+    return NextResponse.json({ error: 'A prompt is required.' }, { status: 400 });
   }
   if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
     return NextResponse.json({ error: 'Model name contains unsupported characters.' }, { status: 400 });
