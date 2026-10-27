@@ -7,6 +7,11 @@ type GeminiRequest = {
   prompt?: string;
 };
 
+type GeminiResponse = {
+  error?: { message?: string; status?: string };
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+};
+
 export async function POST(request: Request) {
   let body: GeminiRequest;
   try {
@@ -37,10 +42,7 @@ export async function POST(request: Request) {
       },
     });
     let upstream: Response | undefined;
-    let result: {
-      error?: { message?: string; status?: string };
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
-    } | null = null;
+    let result: GeminiResponse | null = null;
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
-      result = await upstream.json().catch(() => null) as typeof result;
+      result = await upstream.json().catch((): null => null) as GeminiResponse | null;
 
       const retryable = [408, 429, 500, 502, 503, 504].includes(upstream.status);
       if (upstream.ok || !retryable || attempt === 2) break;
