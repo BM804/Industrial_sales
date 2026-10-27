@@ -6,7 +6,12 @@ const DURATION_VERSION_KEY = 'forge-project-timeline-version';
 const representatives = ['Avinab Koushik', 'Aarav Mehta', 'Priya Sharma', 'Rohan Iyer', 'Sneha Nair', 'Vikram Desai', 'Neha Kapoor', 'Kabir Malhotra'];
 const accountNames = ['Al Noor Industries', 'Bharat Auto Components', 'Western Foundry Group', 'Meridian Engineering', 'Suryatech Motors', 'Apex Process Systems', 'Indus Motion Controls', 'Trident Packaging Works', 'Vardhan Industrial Systems', 'BluePeak Manufacturing', 'Kaveri Precision Components', 'Northstar Automation', 'Summit Heavy Equipment', 'Crestline Logistics', 'Pioneer Energy Systems', 'Silverline Castings', 'Aarohan Electrical Works', 'Evergreen Plant Technologies', 'Vertex Materials Group', 'Horizon Machine Tools'];
 const projectTypes = ['Smart Factory Modernization', 'Automated Press Line', 'Predictive Maintenance Platform', 'Warehouse Robotics System', 'Quality Vision Inspection', 'Energy Optimization Program', 'CNC Modernization', 'Assembly Line Traceability', 'Digital Twin Deployment', 'Industrial IoT Gateway', 'Robotic Welding Cell', 'Packaging Automation', 'Condition Monitoring Network', 'Material Handling Upgrade', 'Batch Control System', 'Fleet Telematics Rollout', 'Safety Interlock Modernization', 'Process Analytics Platform', 'Vision Guided Assembly', 'Plant Network Resilience'];
-const stages = ['Technical sizing', 'Internal rationalization', 'Quote submitted', 'In negotiation'];
+const stages = ['Technical sizing', 'Proposal preparation', 'Proposal submit', 'In negotiation'];
+export function normalizeDealStage(stage: string) {
+  if (stage === 'Internal rationalization') return 'Proposal preparation';
+  if (stage === 'Quote submitted') return 'Proposal submit';
+  return stage;
+}
 const projectDurations = [8, 9, 7, 10, 6, 5, 4, 6, 8, 3, 5, 6, 4, 5, 7, 4, 3, 5, 6, 4];
 const clientReviews = [
   'Commissioning completed to the agreed acceptance criteria; handover documentation was clear.',
@@ -67,6 +72,11 @@ function demoRequest<T>(path: string, init: RequestInit): T {
       stored=stored.map((deal,index)=>{const seed=illustrativeDeals.find(item=>item.id===deal.id)||illustrativeDeals[(index*7)%illustrativeDeals.length];return {...deal,durationMonths:(deal.durationMonths&&deal.durationMonths>1)?deal.durationMonths:seed.durationMonths,startDate:deal.startDate||seed.startDate,feedback:deal.feedback||seed.feedback||''}});
       demoWrite(DEMO_KEYS.deals,stored);
       localStorage.setItem(DURATION_VERSION_KEY,'2');
+    }
+    const normalized = stored.map(deal => ({ ...deal, stage: normalizeDealStage(deal.stage) }));
+    if (normalized.some((deal, index) => deal.stage !== stored[index]?.stage)) {
+      stored = normalized;
+      demoWrite(DEMO_KEYS.deals, stored);
     }
     const legacySeedIds = new Set(['demo-1', 'demo-2', 'demo-3', 'demo-4', 'demo-5']);
     if (stored.length === 5 && stored.every(row => legacySeedIds.has(row.id))) {

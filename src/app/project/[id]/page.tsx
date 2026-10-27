@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Building2, BriefcaseBusiness, CircleDollarSign, ExternalLink, LoaderCircle, TrendingUp } from 'lucide-react';
 import { AuthGate } from '../../../components/auth-gate';
-import { apiFetch, type Deal } from '../../../lib/api';
+import { apiFetch, normalizeDealStage, type Deal } from '../../../lib/api';
 import { formatINR } from '../../../lib/pricing-rules';
 
 const dateLabel = (value?: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Not set';
@@ -22,7 +22,8 @@ function ProjectAccountView() {
   const load = useCallback(async () => {
     try {
       setError('');
-      setDeals(await apiFetch<Deal[]>('/api/deals'));
+      const storedDeals = await apiFetch<Deal[]>('/api/deals');
+      setDeals(storedDeals.map(deal => ({ ...deal, stage: normalizeDealStage(deal.stage) })));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not load project details.');
     } finally {
