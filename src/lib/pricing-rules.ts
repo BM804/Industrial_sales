@@ -1,4 +1,5 @@
 export type Role = {
+  id?: string;
   name: string;
   count: number;
   rate: number;
@@ -24,17 +25,17 @@ export const experienceRates = [
 export function tierForRole(role: Role) {
   return experienceRates.find(tier=>tier.label===role.experienceTier)?.label || experienceRates.reduce((best, tier) => Math.abs(tier.rate - role.rate) < Math.abs(best.rate - role.rate) ? tier : best, experienceRates[0]).label;
 }
-export function normalizeRoleExperience(role:Role):Role { const tier=experienceRates.find(item=>item.label===role.experienceTier)||experienceRates.reduce((best,item)=>Math.abs(item.rate-role.rate)<Math.abs(best.rate-role.rate)?item:best,experienceRates[0]);return {...role,experienceTier:tier.label,rate:tier.rate,marginPct:role.marginPct??45}; }
+export function normalizeRoleExperience(role:Role):Role { const tier=experienceRates.find(item=>item.label===role.experienceTier)||experienceRates.reduce((best,item)=>Math.abs(item.rate-role.rate)<Math.abs(best.rate-role.rate)?item:best,experienceRates[0]);return {...role,id:role.id||`role-${role.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-')}`,experienceTier:tier.label,rate:tier.rate,marginPct:role.marginPct??45}; }
 
 export const defaultRoles: Role[] = [
-  { name: 'Core developers', count: 2, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2], critical: true },
-  { name: 'AI engineers', count: 2, rate: 215000, experienceTier:'9–12 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2], critical: true },
-  { name: 'Frontend developers', count: 2, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2] },
-  { name: 'Backend developers', count: 2, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2] },
-  { name: 'UI/UX designers', count: 2, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 1.5, utilizationPct: 100, activeMonths:[1,2] },
-  { name: 'Project manager', count: 1, rate: 215000, experienceTier:'9–12 Years', marginPct:45, startMonth: 1, durationMonths: 5, utilizationPct: 50, activeMonths:[1,2,3,4,5], critical: true },
-  { name: 'Business analyst', count: 1, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 75, activeMonths:[1,2] },
-  { name: 'QA / testers', count: 1, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 3, durationMonths: 1.5, utilizationPct: 100, activeMonths:[3,4] }
+  { id:'core-developers', name: 'Core developers', count: 2, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2], critical: true },
+  { id:'ai-engineers', name: 'AI engineers', count: 2, rate: 215000, experienceTier:'9–12 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2], critical: true },
+  { id:'frontend-developers', name: 'Frontend developers', count: 2, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2] },
+  { id:'backend-developers', name: 'Backend developers', count: 2, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 100, activeMonths:[1,2] },
+  { id:'ui-ux-designers', name: 'UI/UX designers', count: 2, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 1.5, utilizationPct: 100, activeMonths:[1,2] },
+  { id:'project-manager', name: 'Project manager', count: 1, rate: 215000, experienceTier:'9–12 Years', marginPct:45, startMonth: 1, durationMonths: 5, utilizationPct: 50, activeMonths:[1,2,3,4,5], critical: true },
+  { id:'business-analyst', name: 'Business analyst', count: 1, rate: 100000, experienceTier:'3–5 Years', marginPct:45, startMonth: 1, durationMonths: 2, utilizationPct: 75, activeMonths:[1,2] },
+  { id:'qa-testers', name: 'QA / testers', count: 1, rate: 150000, experienceTier:'6–8 Years', marginPct:45, startMonth: 3, durationMonths: 1.5, utilizationPct: 100, activeMonths:[3,4] }
 ];
 
 export const formatINR = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);

@@ -111,7 +111,7 @@ function demoRequest<T>(path: string, init: RequestInit): T {
     else { demoWrite(DEMO_KEYS.goal, body); result = body; }
   } else if (path === '/api/negotiations') {
     if (method === 'GET') result = history();
-    else { const row = { ...body, id: `history-${Date.now()}` }; demoWrite(DEMO_KEYS.history, [row, ...history()]); result = row; }
+    else { const row = { ...body, id: `history-${Date.now()}`, createdAt: new Date().toISOString() }; demoWrite(DEMO_KEYS.history, [row, ...history()]); result = row; }
   } else if (path.startsWith('/api/negotiations/')) {
     const id = path.split('/').pop()!;
     if(method==='DELETE') demoWrite(DEMO_KEYS.history, history().filter(record => record.id !== id));

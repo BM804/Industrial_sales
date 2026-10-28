@@ -4,12 +4,12 @@ import { ChevronDown, ChevronRight, History, LoaderCircle } from 'lucide-react';
 import { formatINR } from '../../lib/pricing-rules';
 import { apiFetch, type Deal, type HistoryRecord } from '../../lib/api';
 
-export function CustomerHistory({deals=[],activeDealId=''}:{deals?:Deal[];activeDealId?:string}) {
+export function CustomerHistory({deals=[],activeDealId='',refreshToken=0}:{deals?:Deal[];activeDealId?:string;refreshToken?:number}) {
   const [records,setRecords]=useState<HistoryRecord[]>([]);
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(true);
   const [expandedDealId,setExpandedDealId]=useState('');
-  useEffect(()=>{apiFetch<HistoryRecord[]>('/api/negotiations').then(setRecords).catch(e=>setError(e instanceof Error?e.message:'Could not load negotiation history.')).finally(()=>setLoading(false))},[]);
+  useEffect(()=>{let canceled=false;setLoading(true);setError('');apiFetch<HistoryRecord[]>('/api/negotiations').then(items=>{if(!canceled)setRecords(items)}).catch(e=>{if(!canceled)setError(e instanceof Error?e.message:'Could not load negotiation history.')}).finally(()=>{if(!canceled)setLoading(false)});return()=>{canceled=true}},[refreshToken]);
   const selectedDeal=deals.find(deal=>deal.id===activeDealId);
   const dealRounds=(dealId:string)=>records.filter(record=>record.dealId===dealId).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
   const normalizeTechnicality=(name:string)=>name.replace(/\s*[·-]\s*Phase\s*\d+$/i,'').trim().toLowerCase();

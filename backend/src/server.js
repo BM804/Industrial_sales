@@ -168,8 +168,10 @@ const server = http.createServer(async (req, res) => {
     const historyMatch = path.match(/^\/api\/negotiations\/([0-9a-f-]+)$/i);
     if (historyMatch && req.method === 'PATCH') {
       const input=await body(req);
-      if(typeof input.suggestionApplied!=='boolean')return send(res,400,{error:'Suggestion status is invalid.'});
-      const result=await pool.query('UPDATE negotiation_records SET suggestion_applied=$2 WHERE id=$1 RETURNING *',[historyMatch[1],input.suggestionApplied]);
+      const hasSuggestionStatus=typeof input.suggestionApplied==='boolean';
+      const hasAdvice=typeof input.response==='string'||typeof input.aiSuggestion==='string';
+      if(!hasSuggestionStatus&&!hasAdvice)return send(res,400,{error:'Negotiation history update is invalid.'});
+      const result=await pool.query('UPDATE negotiation_records SET suggestion_applied=COALESCE($2,suggestion_applied),response=COALESCE($3,response),ai_suggestion=COALESCE($4,ai_suggestion) WHERE id=$1 RETURNING *',[historyMatch[1],hasSuggestionStatus?input.suggestionApplied:null,typeof input.response==='string'?input.response:null,typeof input.aiSuggestion==='string'?input.aiSuggestion:null]);
       if(!result.rowCount)return send(res,404,{error:'Negotiation round not found.'});
       const r=result.rows[0];
       return send(res,200,{id:r.id,customerType:r.customer_type,sector:r.sector,quote:Number(r.quote),firstCounter:Number(r.first_counter),closedAt:Number(r.closed_at),outcome:r.outcome,objection:r.objection,response:r.response,aiSuggestion:r.ai_suggestion,suggestionApplied:r.suggestion_applied,dealId:r.deal_id,projectName:r.project_name,createdAt:r.created_at});
