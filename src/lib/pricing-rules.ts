@@ -46,3 +46,12 @@ export function baseline(roles: Role[]) { return roles.reduce((sum, r) => sum + 
 export function swapSavings(roles: Role[], juniorRateFactor = .68) { return roles.reduce((sum, r) => sum + (r.critical ? 0 : roleCost(r) * (1 - juniorRateFactor)), 0); }
 export function margin(price: number, cost: number) { return price <= 0 ? 0 : (price - cost) / price; }
 export function floorPrice(cost: number, marginFloor = .35) { return cost / (1 - marginFloor); }
+export function priceWithMarkup(cost: number, markupPercent: number) {
+  return Math.max(0, cost) * (1 + Math.max(0, markupPercent) / 100);
+}
+export function markupFloorPrice(cost: number, floorMarkupPercent = 35) {
+  return priceWithMarkup(cost, floorMarkupPercent);
+}
+export function markupPercent(price: number, cost: number) {
+  return cost > 0 ? ((price - cost) / cost) * 100 : 0;
+}
